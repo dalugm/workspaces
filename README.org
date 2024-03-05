@@ -1,0 +1,239 @@
+#+title: Tabspaces
+#+author: Colin McLear
+#+language: en
+#+export_file_name: tabspaces.texi
+#+texinfo_filename: tabspaces.info
+#+texinfo_dir_category: Emacs
+#+texinfo_dir_title: Tabspaces: (tabspaces).
+#+texinfo_dir_desc: Tabbed workspaces using tab-bar and project
+
+Tabspaces leverages [[https://github.com/emacs-mirror/emacs/blob/master/lisp/tab-bar.el][tab-bar.el]] and [[https://github.com/emacs-mirror/emacs/blob/master/lisp/progmodes/project.el][project.el]] (both built into emacs
+27+) to create buffer-isolated workspaces (or "tabspaces") that also
+integrate with your version-controlled projects. It should work with
+emacs 27+. It is tested to work with a single frame workflow, but
+should work with multiple frames as well.
+
+While other great packages exist for managing workspaces, such as
+[[https://github.com/alphapapa/bufler.el][bufler]], [[https://github.com/nex3/perspective-el][perspective]] and [[https://github.com/Bad-ptr/persp-mode.el][persp-mode]], this package is less complex than
+those alternatives, and works entirely based on the built-in (to emacs
+27+) tab-bar and project packages. If you like simple, this may be the
+workspace package for you. That said, bufler, perspective or
+persp-mode, etc. may better fit your needs.
+
+** Basic Usage
+
+Calling the minor-mode =tabspaces-mode= sets up newly created tabs as
+buffer-isolated workspaces using =tab-bar.el= in the
+background. Calling =tabspaces-mode= does not itself create a new
+tabbed workspace.
+
+Switch or create workspace via =tabspaces-switch-workspace=. Close a
+workspace by invoking =tabspaces-close-workspace=. Note that these two
+functions are simply wrappers around native =tab-bar= commands.
+
+Open an existing version-controlled project in its own workspace using
+=tabspaces-open-workspace=. If no such project exists it will then
+create one in its own workspace for you.
+
+See workspace buffers using =tabspaces-switch-buffer= (for =consult=
+integration see below), which will only show buffers in the workspace
+(but list-buffers, ibuffer, etc. will show all buffers). Setting
+=tabspaces-use-filtered-buffers-as-default= to =t= remaps
+=switch-to-buffer= to =tabspaces-switch-to-buffer=.
+
+Adding buffers to a workspace is as simple as opening the buffer in
+the workspace. Delete buffers from a workspace either by killing them
+or using =tabspaces-kill-buffer=.
+
+*NOTE* that other than tabbed buffer isolation for all created window
+tabs this package does not modify =tab-bar=, =tab-line=, or =project=
+in any way. It simply adds convenience functions for use with those
+packages. So it is still up to the user to configure tabs, etc.,
+however they like.
+
+** Installation
+
+This is a modified version of the original [[https://github.com/mclear-tools/tabspaces][tabspaces]].
+
+To use this, you should download it manually.
+
+** Setup
+
+Here's one possible way of setting up the package using [[https://github.com/jwiegley/use-package][use-package]].
+
+#+begin_src emacs-lisp
+(use-package tabspaces
+  :vc (:url "https://github.com/dalugm/tabspaces" :rev :newest)
+  :hook (after-init . tabspaces-mode))
+#+end_src
+
+*** Keybindings 
+
+The variable =tabspaces-keymap-prefix= sets a key prefix (default is
+=C-c C-w=) for the keymap, but this can be changed to anything the
+user prefers.
+
+*** Buffer Filtering
+
+When =tabspaces-mode= is enabled use =tabspaces-switch-to-buffer= to
+choose from a filtered list of only those buffers in the current
+tab/workspace. Though =nil= by default, when
+=tabspaces-use-filtered-buffers-as-default= is set to =t= and
+=tabspaces-mode= is enabled, =switch-to-buffer= is globally remapped
+to =tabspaces-switch-to-buffer=, and thus only shows those buffers in
+the current workspace. For use with =consult-buffer=, see below.
+
+*** Switch Tabs via Buffer
+
+Sometimes the user may wish to switch to some open buffer in a
+tabspace and switch to that tab as well. Use
+=(=tabspaces-switch-buffer-and-tab=) to achieve this. If the buffer is
+open in more than one tabspace the user will be prompted to choose
+which tab to switch to. If there is no such buffer user will be
+prompted on whether to create it in a new tabspace or the current one.
+
+*** Persistent Tabspaces
+
+Rudimentary support for saving tabspaces across sessions has been
+implemented.  Setting =tabspaces-session= to =t= ensures that all open
+tabspaces and file-visiting buffers are saved. These may either be
+restored interactively via =(tabspaces-restore-session)=,
+non-interactively via =(tabspaces--restore-session-on-startup)=, or
+they can be automatically opened when =(tabspaces-mode)= is activated
+if =tabspaces-session-auto-restore= is set to =t=. In addition, a
+particular project tabspace may be saved via
+=(tabspaces-save-current-project-session)=, and restored when the
+project is opened via
+=(tabspaces-open-or-create-project-and-workspace)=.
+
+*** Additional Customization
+
+**** Consult
+
+If you have [[https://github.com/minad/consult][consult]] installed you might want to implement the
+following in your config to have workspace buffers in
+=consult-buffer=:
+
+#+begin_src emacs-lisp
+  ;; Integrate workspace buffers into `consult-buffer'.
+  (with-eval-after-load 'consult
+    ;; Hide full buffer list (still available with "b" prefix).
+    (consult-customize consult--source-buffer :hidden t :default nil)
+    ;; Set consult-workspace buffer list.
+    (defvar consult--source-workspace
+      (list :name     "Workspace Buffers"
+            :narrow   ?w
+            :history  'buffer-name-history
+            :category 'buffer
+            :state    #'consult--buffer-state
+            :default  t
+            :items    (lambda () (consult--buffer-query
+                                  :predicate #'tabspaces--local-buffer-p
+                                  :sort 'visibility
+                                  :as #'buffer-name)))
+      "Workspace buffer candidate source for `consult-buffer'.")
+    (add-to-list 'consult-buffer-sources 'consult--source-workspace))
+#+end_src
+
+This should seamlessly integrate workspace buffers into
+=consult-buffer=, displaying workspace buffers by default and all
+buffers when narrowing using "b". Note that you can also see all
+project related buffers and files just by narrowing with "p" in [[https://github.com/minad/consult#configuration][a
+default consult setup]].
+
+*NOTE*: If you typically toggle between having =tabspaces-mode= active
+and inactive, you may want to also include a hook function to turn off
+the =consult--source-workspace= above and modify the visibility of
+=consult--source-buffer=. You can do that with something like the
+following:
+
+#+begin_src emacs-lisp
+  (defun my--consult-tabspaces ()
+        "Isolate workspace buffers when using tabspaces."
+        (if tabspaces-mode
+            (add-to-list 'consult-buffer-sources 'consult--source-workspace)
+          ;; Reset `consult-buffer' to show all buffers.
+          (setq consult-buffer-sources
+                (remove #'consult--source-workspace consult-buffer-sources))))
+
+  (add-hook 'tabspaces-mode-hook #'my--consult-tabspaces)           
+#+end_src
+
+**** Ivy
+
+If you use ivy you can use this function to limit your buffer search
+to only those in the tabspace.
+
+#+begin_src emacs-lisp
+  (defun tabspaces-ivy-switch-buffer (buffer)
+    "Display the local buffer BUFFER in the selected window.
+  This is the frame/tab-local equivilant to `switch-to-buffer'."
+    (interactive
+     (list
+      (let ((blst (mapcar #'buffer-name (tabspaces-buffer-list))))
+        (read-buffer
+         "Switch to local buffer: " blst nil
+         (lambda (b) (member (if (stringp b) b (car b)) blst))))))
+    (ivy-switch-buffer buffer))
+#+end_src
+
+Alternatively, you may use the following function, which is basically
+a clone of =ivy-switch-buffer= (and thus uses ivy's own implementation
+framework), but with an additional predicate that only allows showing
+buffers from the current tabspace.
+
+#+begin_src emacs-lisp
+  (defun tabspaces-ivy-switch-buffer ()
+    "Switch to another buffer in the current tabspace."
+    (interactive)
+    (ivy-read "Switch to buffer: " #'internal-complete-buffer
+              :predicate (when (tabspaces--current-tab-name)
+                           (let ((local-buffers (tabspaces--buffer-list)))
+                             (lambda (name-and-buffer)
+                               (member (cdr name-and-buffer) local-buffers))))
+              :keymap ivy-switch-buffer-map
+              :preselect (buffer-name (other-buffer (current-buffer)))
+              :action #'ivy--switch-buffer-action
+              :matcher #'ivy--switch-buffer-matcher
+              :caller 'ivy-switch-buffer))
+#+end_src
+
+**** Included Buffers
+
+By default the =*scratch*= and =*Messages*= buffer is included in all
+workspaces. You can modify which buffers are included by default by
+changing the value of =tabspaces-include-buffers=.
+
+If you want emacs to startup with a set of initial buffers in a
+workspace (something I find works well) you could do something like
+the following:
+
+#+begin_src emacs-lisp
+  (defun my--tabspace-setup ()
+    "Set up tabspace at startup."
+    ;; Add *splash* to Tab `Home'
+    (tabspaces-mode +1)
+    (tab-bar-rename-tab "Home")
+    (when (get-buffer "*splash*")
+      (set-frame-parameter nil
+                           'buffer-list
+                           (cons (get-buffer "*splash*")
+                                 (frame-parameter nil 'buffer-list)))))
+
+  (add-hook 'after-init-hook #'my--tabspace-setup)
+#+end_src
+
+** Acknowledgments
+
+Code for this package is derived from, or inspired by, a variety of
+sources.  These include:
+
+- The original buffer filter function
+   + https://www.rousette.org.uk/archives/using-the-tab-bar-in-emacs/
+   + https://github.com/wamei/elscreen-separate-buffer-list/issues/8
+   + https://github.com/kaz-yos/emacs
+- Buffer filtering and removal
+   + https://github.com/florommel/bufferlo
+- Consult integration
+   + https://github.com/minad/consult#multiple-sources
+     
