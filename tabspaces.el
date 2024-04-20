@@ -93,6 +93,11 @@ the value of `project-switch-commands'."
   :group 'tabspaces
   :type 'sexp)
 
+(defcustom tabspaces-use-truepath nil
+  "Whether resolve \".\", \"..\", etc. in project path."
+  :group 'tabspaces
+  :type 'boolean)
+
 ;;;; Create Buffer Workspace
 
 (defun tabspaces--reset-buffer-list ()
@@ -331,48 +336,41 @@ If FRAME is nil, use the current frame."
                  do (kill-buffer b))
       (tab-bar-close-tab))))
 
-;;;;; Open or Create Project in Workspace
-;;;###autoload
-(defun tabspaces--generate-unique-tab-name (base-name existing-names)
-  "Generate a unique tab name based on BASE-NAME and the list of EXISTING-NAMES."
-  (let ((new-name base-name)
-        (count 1))
-    (while (member new-name existing-names)
-      (setq new-name (format "%s<%d>" base-name count))
-      (cl-incf count))
-    new-name))
+;;;;; Open project in workspace.
+(defun tabspaces--generate-tab-name (path)
+  "Generate a tab name.
+If the name already existed inside `tabspaces-project-tab-alist', then
+generate the name based on its PATH, otherwise use its dir's name."
+  (let* ((reverse-path-lst (reverse (string-split (directory-file-name path) "/")))
+         (base-name  (car reverse-path-lst))
+         (parent-dir (cadr reverse-path-lst))
+         (gp-dir     (caddr reverse-path-lst)))
+    (if (member base-name (tabspaces--list-tabspaces))
+        (format "%s (%s/%s)" base-name (or gp-dir "") parent-dir)
+      base-name)))
 
 ;;;###autoload
-(defun tabspaces-open-workspace ()
-  "Open PROJECT from `project--list' in its own workspace.
-If PROJECT is already opened in its own workspace, switch to that
-workspace.  If PROJECT does not exist in tabspaces, and the directory
-contents of PROJECT do not look like a project either, create it in its
-own workspace."
-  (interactive)
+(defun tabspaces-open-workspace (&optional project)
+  "Open PROJECT and its workspace with a descriptive tab name."
+  (interactive (list (project-prompt-project-dir)))
   (let* ((project-switch-commands tabspaces-project-switch-commands)
-         (project-dir (project-prompt-project-dir))
-         (project-name (directory-file-name project-dir))
-         (project-root-name (file-name-nondirectory project-name))
-         (existing-tab-names (tabspaces--list-tabspaces))
-         (tab-name (if (and (member project-root-name existing-tab-names)
-                            current-prefix-arg)
-                       (tabspaces--generate-unique-tab-name
-                        project-root-name
-                        existing-tab-names)
-                     project-root-name))
-         (session (concat project-dir "." project-root-name "-tabspaces-session.el"))
+         (project-dir (if tabspaces-use-truepath
+                          (expand-file-name project)
+                        project))
+         (tab-name (tabspaces--generate-tab-name project-dir))
+         (session (concat project-dir "." tab-name "-tabspaces-session.el"))
          (dir-potential-project (project--find-in-directory project-dir))
-         (project-remembered-p (member (list project-dir) project--list)))
+         (project-remembered-p (member (list project-dir) project--list))
+         (tab-existed-p (member tab-name (tabspaces--list-tabspaces))))
     (cond
      ;; 1. If both project and tab exist, then switch to it.
-     ((and project-remembered-p (member tab-name existing-tab-names))
+     ((and project-remembered-p tab-existed-p)
       (tab-bar-switch-to-tab tab-name))
      ;; 2. If project (or a directory with actual project contents)
      ;; exists while tab not, then open tabspace and check for session
      ;; to restore, otherwise start a new session.
      ((and (or project-remembered-p dir-potential-project)
-           (not (member tab-name existing-tab-names)))
+           (not tab-existed-p))
       (tab-bar-new-tab)
       (tab-bar-rename-tab tab-name)
       (let ((default-directory project-dir))
