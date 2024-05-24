@@ -139,14 +139,14 @@ in `tabspaces-exclude-buffers' are kept in the `buffer-list' and
   (when (eq (frame-parameter frame 'buffer-predicate) #'tabspaces--local-buffer-p)
     (set-frame-parameter frame 'buffer-predicate nil)))
 
-(defun tabspaces--buffer-list (&optional frame tab)
-  "Return a list of live buffers associated with FRAME and TAB.
-A non-nil FRAME selects a specific frame instead of the current
-one. A non-nil TAB will specify the corresponding tab index in
-the given frame."
+(defun tabspaces--buffer-list (&optional frame index)
+  "Return a list of live buffers associated with FRAME and INDEX.
+A non-nil FRAME will select the specific frame instead of the current
+one.  A non-nil INDEX will specify the corresponding tab index in the
+given frame."
   (seq-filter #'buffer-live-p
-              (if tab
-                  (let ((tab (nth tab (frame-parameter frame 'tabs))))
+              (if index
+                  (let ((tab (nth index (frame-parameter frame 'tabs))))
                     (if (eq 'current-tab (car tab))
                         (frame-parameter frame 'buffer-list)
                       (or
@@ -327,14 +327,24 @@ If FRAME is nil, use the current frame."
 (defalias 'tabspaces-rename-workspace #'tab-bar-rename-tab)
 
 ;;;;; Close Workspace & Kill Buffers
-(defun tabspaces-close-workspace ()
-  "Kill all buffers in the workspace and then close the workspace itself."
-  (interactive)
-  (let ((buf (tabspaces--buffer-list)))
-    (unwind-protect
-        (cl-loop for b in buf
-                 do (kill-buffer b))
-      (tab-bar-close-tab))))
+(defun tabspaces-close-workspace (workspace)
+  "Kill all buffers and close current WORKSPACE.
+When with a \\[universal-argument], select a WORKSPACE to close."
+  (interactive
+   (list (if (equal current-prefix-arg '(4))
+             (completing-read "Close workspace: " (tabspaces--list-tabspaces))
+           (tabspaces--current-tab-name))))
+  (if (= 1 (length (tabspaces--list-tabspaces)))
+      (user-error "Attempt to close the sole workspace")
+    (let ((buf-lst (tabspaces--buffer-list
+                    nil
+                    (tab-bar--tab-index-by-name workspace))))
+      (unwind-protect
+          (cl-loop for buf in buf-lst
+                   do (unless (member (buffer-name buf)
+                                      tabspaces-include-buffers)
+                        (kill-buffer buf)))
+        (tab-bar-close-tab-by-name workspace)))))
 
 ;;;;; Open project in workspace.
 (defun tabspaces--generate-tab-name (path)
