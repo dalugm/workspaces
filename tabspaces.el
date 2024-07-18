@@ -505,11 +505,19 @@ generate the name based on its PATH, otherwise use its dir's name."
   ;; Finally, kill the temporary buffer to clean up.
   (kill-buffer "*tabspaces--placeholder*"))
 
-;; Restore session used for startup
+(defun tabspaces--create-session-file ()
+  "Create the tabspaces session file if not exists."
+  (unless (file-exists-p tabspaces-session-file)
+    (with-temp-buffer
+      (write-file tabspaces-session-file))
+    (message "Created tabspaces session file: `%s'." tabspaces-session-file)))
+
 (defun tabspaces--restore-session-on-startup ()
   "Restore tabspaces session on startup.
 Unlike the interactive restore, this function does more clean up to remove
 unnecessary tab."
+  (message "Restoring tabspaces session on startup.")
+  (tabspaces--create-session-file)
   (load-file tabspaces-session-file)
   ;; Start looping through the session list, but ensure to start from a
   ;; temporary buffer "*tabspaces--placeholder*" in order not to pollute the
@@ -582,7 +590,7 @@ unnecessary tab."
         (when tabspaces-session
           (add-hook 'kill-emacs-hook #'tabspaces-save-session))
         (when tabspaces-session-auto-restore
-          (add-hook 'emacs-startup-hook #'tabspaces--restore-session-on-startup)))
+          (tabspaces--restore-session-on-startup)))
     (progn
       (dolist (frame (frame-list))
         (tabspaces--reset-buffer-predicate frame))
@@ -591,8 +599,7 @@ unnecessary tab."
       (setq tab-bar-tab-post-open-functions
             (remove #'tabspaces--tab-post-open-function tab-bar-tab-post-open-functions))
       (remove-hook 'after-make-frame-functions #'tabspaces--set-buffer-predicate)
-      (remove-hook 'kill-emacs-hook #'tabspaces-save-session)
-      (remove-hook 'emacs-startup-hook #'tabspaces-restore-session))))
+      (remove-hook 'kill-emacs-hook #'tabspaces-save-session))))
 
 (provide 'tabspaces)
 ;;; tabspaces.el ends here
