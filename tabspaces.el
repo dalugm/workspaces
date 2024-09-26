@@ -4,8 +4,8 @@
 ;; Maintainer: Mou Tong <mou.tong@qq.com>
 ;; Version: 1.0.0
 ;; Package-Requires: ((emacs "27.1") (project "0.8.1"))
+;; URL: https://github.com/dalugm/tabspaces
 ;; Keywords: convenience, frames
-;; Homepage: https://github.com/dalugm/tabspaces
 
 ;; Copyright (c) 2022-2023 Colin McLear
 ;; Copyright (c) 2024 Mou Tong
