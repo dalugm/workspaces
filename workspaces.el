@@ -2,8 +2,8 @@
 
 ;; Author: Colin McLear <mclear@fastmail.com>
 ;; Maintainer: Mou Tong <mou.tong@qq.com>
-;; Version: 1.0.0
-;; Package-Requires: ((emacs "27.1") (project "0.8.1"))
+;; Version: 1.0.1
+;; Package-Requires: ((emacs "27.1") (compat "30") (project "0.8.1"))
 ;; URL: https://github.com/dalugm/workspaces
 ;; Keywords: convenience, frames
 
@@ -48,6 +48,7 @@
 ;;;; Requirements
 
 (eval-when-compile (require 'cl-lib))
+(require 'compat)
 (require 'tab-bar)
 (require 'project)
 (require 'vc)
@@ -252,7 +253,7 @@ tab."
      ((and (get-buffer buffer) dupe)
       (dolist (tab (workspaces--list) tabcand)
         (when (member buffer (mapcar #'buffer-name (workspaces--buffer-list nil (tab-bar--tab-index-by-name tab))))
-          (push tabcand tab)))
+          (push tab tabcand)))
       (tab-bar-switch-to-tab (completing-read "Select tab: " tabcand))
       (workspaces-switch-to-buffer buffer))
      ;; 3. Buffer does not exist.
@@ -322,15 +323,46 @@ When with a \\[universal-argument], select a WORKSPACE to close."
         (new-name base-name))
     (while (member new-name existed-workspaces)
       (setq new-name (format "%s<%d>" base-name counter)
-            counter (+ counter 1)))
+            counter (1+ counter)))
     new-name))
+
+;; Overwrite `read-directory-name' to create projects when necessary.
+(defun workspaces--read-directory-name (prompt &optional dir default mustmatch)
+  "Read a directory name, and create it if it does not exist."
+  (let ((dir-name (read-directory-name prompt dir default mustmatch)))
+    (unless (file-directory-p dir-name)
+      (when (y-or-n-p (format "Directory %s does not exist. Create it?" dir-name))
+        (make-directory dir-name t)))
+    dir-name))
+
+;; Replace `project-prompt-project-dir' for project creation.
+(defun workspaces--prompt-project-dir ()
+  "Prompt the user for a directory that is one of the known project roots.
+The project is chosen among projects known from the project list,
+see `project-list-file'.
+It's also possible to enter an arbitrary directory not in the list."
+  (project--ensure-read-project-list)
+  (let* ((dir-choice "... (choose a dir)")
+         (choices
+          ;; XXX: Just using this for the category (for the substring
+          ;; completion style).
+          (project--file-completion-table
+           (append project--list `(,dir-choice))))
+         (pr-dir ""))
+    (while (equal pr-dir "")
+      ;; If the user simply pressed RET, do this again until they don't.
+      (setq pr-dir (completing-read "Select project: " choices nil t)))
+    (if (equal pr-dir dir-choice)
+        (workspaces--read-directory-name "Select directory: ")
+      pr-dir)))
 
 ;;;###autoload
 (defun workspaces-open (&optional project prefix)
   "Open PROJECT and its workspace with a descriptive name.
 
 With universal argument PREFIX, always create a new workspace."
-  (interactive (list (project-prompt-project-dir)))
+  (interactive
+   (list (workspaces--prompt-project-dir) current-prefix-arg))
   (let* ((project-switch-commands workspaces-project-switch-commands)
          (project-dir (if workspaces-use-truepath
                           (expand-file-name project)
@@ -348,11 +380,11 @@ With universal argument PREFIX, always create a new workspace."
       (tab-bar-rename-tab ws-name)
       (project-switch-project project-dir)
       (let ((default-directory project-dir))
-        (if (featurep 'magit)
+        (if (fboundp 'magit-init)
             (magit-init project-dir)
           (call-interactively #'vc-create-repo))
         (delete-other-windows)
-        (if (featurep 'magit)
+        (if (fboundp 'magit-status-setup-buffer)
             (magit-status-setup-buffer project-dir)
           (project-vc-dir)))
       ;; Remember new project
