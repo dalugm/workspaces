@@ -52,7 +52,6 @@
 (require 'tab-bar)
 (require 'project)
 (require 'vc)
-(require 'vc-git)
 (require 'seq)
 
 (declare-function magit-init "magit-status")
@@ -149,6 +148,18 @@ given frame."
                 (frame-parameter frame 'buffer-list))))
 
 ;;;; Project Workspace Helper Functions
+
+(defun workspaces--git-repo-p (directory &optional non-bare)
+  "Return t if DIRECTORY is a Git repository.
+When optional NON-BARE is non-nil also return nil if DIRECTORY is
+a bare repository."
+  (and (file-directory-p directory) ; Avoid archives, see #3397.
+       (or (file-regular-p (expand-file-name ".git" directory))
+           (file-directory-p (expand-file-name ".git" directory))
+           (and (not non-bare)
+                (file-regular-p (expand-file-name "HEAD" directory))
+                (file-directory-p (expand-file-name "refs" directory))
+                (file-directory-p (expand-file-name "objects" directory))))))
 
 (defun workspaces--current-name ()
   "Get name of current workspace."
@@ -370,7 +381,6 @@ With universal argument PREFIX, always create a new workspace."
          (existed-workspaces (workspaces--list))
          (ws-name (or (car (member project-dir existed-workspaces))
                       (workspaces--generate-name project-dir existed-workspaces)))
-         (dir-potential-project (project--find-in-directory project-dir))
          (project-existed-p (member (list project-dir) project--list))
          (create-ws-p (or prefix (not (member ws-name existed-workspaces)))))
     (cond
@@ -378,16 +388,25 @@ With universal argument PREFIX, always create a new workspace."
      ((not project-existed-p)
       (tab-bar-new-tab)
       (tab-bar-rename-tab ws-name)
-      (project-switch-project project-dir)
+      (delete-other-windows)
+      ;; Git initialized if not version controlled.
       (let ((default-directory project-dir))
-        (if (fboundp 'magit-init)
-            (magit-init project-dir)
-          (call-interactively #'vc-create-repo))
-        (delete-other-windows)
-        (if (fboundp 'magit-status-setup-buffer)
-            (magit-status-setup-buffer project-dir)
-          (project-vc-dir)))
-      ;; Remember new project
+        (if (workspaces--git-repo-p project-dir)
+            (if (fboundp 'magit-status-setup-buffer)
+                (magit-status-setup-buffer project-dir)
+              ;; Keep one vc buffer window and one workspace buffer window.
+              (split-window)
+              (project-vc-dir))
+          (if (fboundp 'magit-init)
+              (magit-init project-dir)
+            (vc-call-backend 'Git 'create-repo)
+            ;; Keep one vc buffer window and one workspace buffer window.
+            (split-window)
+            (project-vc-dir))))
+      ;; Switch to workspace buffer window.
+      (other-window 1)
+      (project-switch-project project-dir)
+      ;; Remember new project.
       (let ((pr (project--find-in-directory default-directory)))
         (project-remember-project pr)))
 
@@ -396,8 +415,7 @@ With universal argument PREFIX, always create a new workspace."
       (let ((new-ws-name (workspaces--generate-name ws-name existed-workspaces)))
         (tab-bar-new-tab)
         (tab-bar-rename-tab new-ws-name)
-        (project-switch-project project-dir)
-        (setq ws-name new-ws-name)))
+        (project-switch-project project-dir)))
 
      ;; If project and workspace exists.
      ((and project-existed-p (member ws-name existed-workspaces))
